@@ -29,7 +29,7 @@ struct ErrKind(EqualityComparable, Representable, Stringable, Writable):
             writer.write("ErrKind.CUT")
 
 
-struct Err(Copyable, Movable, Representable):
+struct Err(Copyable, Movable, Representable, Writable):
     var kind: ErrKind
     var input: StringSlice[ImmutableAnyOrigin]
 

@@ -1,51 +1,146 @@
 from utils.variant import Variant
-from sys.info import sizeof
 from memory.maybe_uninitialized import UnsafeMaybeUninitialized
-from .tuple import _ParserTuple
-from builtin.variadics import VariadicOf
-from os import abort
 from .error import *
 import .combinator
 
 alias ParserValue = Copyable & Movable
+"""Todo."""
 
-
-@fieldwise_init
-struct Parser[ParserType: Parsable](Parsable):
-    var _parser: ParserType
-
-    alias Output = ParserType.Output
-
-    fn parse[
-        origin: ImmutableOrigin, //
-    ](self, input: StringSlice[origin]) -> ParseResult[Self.Output]:
-        return self._parser.parse(input)
-
-    fn value[
-        T: ParserValue, //
-    ](self, var value: T) -> Parser[combinator.Value[T, Self]]:
-        return combinator.value(value^, self)
-
-    fn cut(self) -> Parser[combinator.Cut[Self]]:
-        return combinator.cut(self)
-
-    fn backtrack(self) -> Parser[combinator.Backtrack[Self]]:
-        return combinator.backtrack(self)
-
-    fn recognize(self) -> Parser[combinator.Recognize[Self]]:
-        return combinator.recognize(self)
-
-    fn recognize_with(self) -> Parser[combinator.RecognizeWith[Self]]:
-        return combinator.recognize_with(self)
+alias ParserInput = StringSlice[mut=False]
+"""Todo."""
 
 
 trait Parsable(Copyable & Movable):
     alias Output: ParserValue
 
-    fn parse[
-        origin: ImmutableOrigin, //
-    ](self, input: StringSlice[origin]) -> ParseResult[Self.Output]:
+    fn parse(self, input: ParserInput) -> ParseResult[Self.Output]:
         ...
+
+
+@fieldwise_init
+struct Parser[ParserType: Parsable](Copyable & Movable & Parsable):
+    """Todo."""
+
+    var _parser: ParserType
+
+    alias Output = ParserType.Output
+
+    fn parse(self, input: ParserInput) -> ParseResult[Self.Output]:
+        return self._parser.parse(input)
+
+    fn value[
+        T: ParserValue, //
+    ](self, var value: T) -> Parser[combinator.Value[T, ParserType]]:
+        """Todo."""
+
+        return combinator.value(value^, self._parser)
+
+    fn cut(self) -> Parser[combinator.Cut[ParserType]]:
+        """Todo."""
+
+        return combinator.cut(self._parser)
+
+    fn backtrack(self) -> Parser[combinator.Backtrack[ParserType]]:
+        """Todo."""
+
+        return combinator.backtrack(self._parser)
+
+    fn recognize(self) -> Parser[combinator.Recognize[ParserType]]:
+        """Todo."""
+
+        return combinator.recognize(self._parser)
+
+    fn recognize_with(self) -> Parser[combinator.RecognizeWith[ParserType]]:
+        """Todo."""
+
+        return combinator.recognize_with(self._parser)
+
+    fn map[
+        MapperInputType: ParserValue,
+        MapperOutputType: ParserValue, //,
+        mapper: fn (var MapperInputType) -> MapperOutputType,
+    ](self) -> Parser[
+        combinator.Map[ParserType, MapperInputType, MapperOutputType, mapper]
+    ]:
+        """Todo."""
+
+        return combinator.map[mapper](self._parser)
+
+    fn try_map[
+        MapperInputType: ParserValue,
+        MapperOutputType: ParserValue, //,
+        mapper: fn (var MapperInputType) raises -> MapperOutputType,
+    ](self) -> Parser[
+        combinator.TryMap[ParserType, MapperInputType, MapperOutputType, mapper]
+    ]:
+        """Todo."""
+
+        return combinator.try_map[mapper](self._parser)
+
+    fn and_then[
+        AndThenParserType: Parsable, //
+    ](self, parser: AndThenParserType) -> Parser[
+        combinator.AndThen[ParserType, AndThenParserType]
+    ]:
+        """Todo."""
+
+        return combinator.and_then(self._parser, parser)
+
+    fn __rshift__[
+        P: Parsable, //, __disambiguate: NoneType = None
+    ](self, parser: P) -> Parser[combinator.sequence._Seq2[ParserType, P]]:
+        return combinator.sequence.seq(self._parser, parser)
+
+    fn __rshift__[
+        P: Parsable, //
+    ](self, parser: Parser[P]) -> Parser[
+        combinator.sequence._Seq2[ParserType, P]
+    ]:
+        return combinator.sequence.seq(self._parser, parser._parser)
+
+    fn __rshift__(
+        self, _none: __type_of(None)
+    ) -> Parser[combinator.Discard[ParserType]]:
+        return combinator.discard(self._parser)
+
+    fn __or__[
+        P: Parsable, //, __disambiguate: NoneType = None
+    ](self, parser: P) -> Parser[combinator.choice.Alt[ParserType, P]]:
+        return combinator.choice.alt(self._parser, parser)
+
+    fn __or__[
+        P: Parsable, //
+    ](self, parser: Parser[P]) -> Parser[combinator.choice.Alt[ParserType, P]]:
+        return combinator.choice.alt(self._parser, parser._parser)
+
+    fn __lt__[
+        P: Parsable, //
+    ](self, parser: Parser[P]) -> Parser[combinator.choice.Alt[ParserType, P]]:
+        return combinator.choice.alt(self._parser, parser._parser)
+
+    fn __invert__(self) -> Parser[combinator.Not[ParserType]]:
+        return combinator.not_(self._parser)
+
+
+@fieldwise_init
+struct ParserFn[T: ParserValue, //, parser: fn (ParserInput) -> ParseResult[T]](
+    Copyable & Movable & Parsable
+):
+    alias Output = T
+
+    fn parse(self, input: ParserInput) -> ParseResult[Self.Output]:
+        return parser(input)
+
+
+fn _parser_fn[
+    T: ParserValue, //, parser: fn (ParserInput) -> ParseResult[T]
+]() -> Parser[ParserFn[parser]]:
+    return Parser[_](ParserFn[parser]())
+
+
+alias parser_fn[
+    T: ParserValue, //, parser: fn (ParserInput) -> ParseResult[T]
+] = _parser_fn[parser]()
 
 
 alias ParseOutput[T: ParserValue] = (
@@ -54,35 +149,37 @@ alias ParseOutput[T: ParserValue] = (
 )
 
 
-@fieldwise_init
 struct ParseResult[T: ParserValue](Boolable, Copyable, Movable):
     alias _ok = ParseOutput[T]
     alias _err = Err
     alias _type = Variant[Self._ok, Self._err]
     var result: Self._type
 
-    # @implicit
-    # fn __init__(out self, var ok: Self._ok):
-    #     self.result = Self._type(ok^)
+    @implicit
+    fn __init__(out self, var result: Self._type):
+        self.result = result^
 
     @implicit
     fn __init__[
         origin: ImmutableOrigin, //
-    ](out self, var ok: (T, StringSlice[origin],)):
-        self.result = Self._type(ok^)
+    ](out self, var ok: (T, StringSlice[origin])):
+        var (output, input) = ok^
+        self.result = Self._type(
+            (output^, rebind[StringSlice[ImmutableAnyOrigin]](input))
+        )
 
     @implicit
     fn __init__[
         output_origin: ImmutableOrigin, input_origin: ImmutableOrigin, //
     ](
-        out self: ParseResult[StringSlice[ImmutableAnyOrigin]],
+        out self,
         var ok: (
             StringSlice[output_origin],
             StringSlice[input_origin],
         ),
     ):
         var (output, input) = ok^
-        self.result = __type_of(self)._type(
+        self.result = Self._type(
             (
                 rebind[StringSlice[ImmutableAnyOrigin]](output),
                 rebind[StringSlice[ImmutableAnyOrigin]](input),
@@ -91,7 +188,7 @@ struct ParseResult[T: ParserValue](Boolable, Copyable, Movable):
 
     @implicit
     fn __init__(out self, var err: Self._err):
-        self.result = Self._type(err^)
+        self.result = err^
 
     fn ok(mut self) -> Self._ok:
         return self.result.take[Self._ok]()
@@ -99,7 +196,9 @@ struct ParseResult[T: ParserValue](Boolable, Copyable, Movable):
     fn err(mut self) -> Self._err:
         return self.result.take[Self._err]()
 
-    fn map[U: ParserValue, f: fn (T) -> U](deinit self) -> ParseResult[U]:
+    fn map[
+        U: ParserValue, //, f: fn (var T) -> U
+    ](deinit self) -> ParseResult[U]:
         if self:
             var (value, input) = self.result.take[Self._ok]()
             return (f(value^), input)

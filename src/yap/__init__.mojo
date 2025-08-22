@@ -2,5 +2,5 @@
 yap
 """
 
-from .parser import Parser, ParseResult
+from .parser import Parser, ParseResult, ParserInput
 from .error import Err, ErrKind

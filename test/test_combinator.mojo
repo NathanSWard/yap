@@ -3,6 +3,7 @@ from yap.error import *
 from yap.token import *
 from yap.combinator import *
 from yap._test_utils import *
+from yap.combinator.sequence import *
 
 # --- cut ---
 
